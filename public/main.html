@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextScan Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa, #e9ecef);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .glass-morphism {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.125);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
+        .btn-primary {
+            background-color: #3182ce;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: #2c5282;
+        }
+        .btn-primary:disabled {
+            background-color: #a0aec0;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-md glass-morphism rounded-2xl shadow-2xl p-8 text-center">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">TextScan Pro</h1>
+        <div id="dropZone" class="drop-zone border-2 rounded-xl p-6 mb-6 text-gray-600">
+            <p class="mb-4">Drag & Drop image or click to upload</p>
+            <input type="file" id="fileInput" accept="image/*" class="hidden">
+            <button onclick="document.getElementById('fileInput').click()" class="btn-primary text-white px-6 py-2 rounded-lg">
+                Upload Image
+            </button>
+        </div>
+        <div id="preview" class="hidden">
+            <div class="relative mb-6">
+                <img id="imagePreview" alt="Uploaded Image" class="w-full rounded-xl shadow-lg object-cover max-h-72">
+                <div id="loadingText" class="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center text-white hidden">
+                    Processing...
+                </div>
+            </div>
+            <button id="processButton" class="btn-primary text-white px-6 py-2 rounded-lg w-full" disabled>
+                Extract Text
+            </button>
+        </div>
+        <div id="output" class="mt-6"></div>
+    </div>
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const preview = document.getElementById('preview');
+        const imagePreview = document.getElementById('imagePreview');
+        const processButton = document.getElementById('processButton');
+        const output = document.getElementById('output');
+        const loadingText = document.getElementById('loadingText');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                imagePreview.src = reader.result;
+                preview.classList.remove('hidden');
+                processButton.disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        processButton.addEventListener('click', () => {
+            processButton.disabled = true;
+            loadingText.classList.remove('hidden');
+            output.innerHTML = '';
+
+            Tesseract.recognize(imagePreview.src, 'eng', { logger: (info) => console.log(info) })
+                .then(({ data: { text } }) => {
+                    fetch('/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text })
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            loadingText.classList.add('hidden');
+                            processButton.disabled = false;
+                            if (data.success) {
+                                output.innerHTML = `
+                                    <div class="bg-white rounded-xl shadow-lg p-6">
+                                        <h3 class="text-xl font-semibold mb-4 text-gray-800">Resume Score</h3>
+                                        <p class="text-lg font-bold text-gray-700 mb-4">${data.suggestions.score || "N/A"}</p>
+                                        <h4 class="text-lg font-semibold text-gray-800">Suggestions for Improvement</h4>
+                                        <p class="text-gray-700 mt-2">${data.suggestions.improvements || "No suggestions available."}</p>
+                                    </div>
+                                `;
+                            } else {
+                                output.innerHTML = `
+                                    <div class="bg-red-100 rounded-xl p-6">
+                                        <p class="text-red-600">${data.error || "Error processing the resume."}</p>
+                                    </div>
+                                `;
+                            }
+                        })
+                        .catch(err => {
+                            loadingText.classList.add('hidden');
+                            processButton.disabled = false;
+                            output.innerHTML = `
+                                <div class="bg-red-100 rounded-xl p-6">
+                                    <p class="text-red-600">Error: ${err.message}</p>
+                                </div>
+                            `;
+                        });
+                })
+                .catch(err => {
+                    loadingText.classList.add('hidden');
+                    processButton.disabled = false;
+                    output.innerHTML = `
+                        <div class="bg-red-100 rounded-xl p-6">
+                            <p class="text-red-600">Error: ${err.message}</p>
+                        </div>
+                    `;
+                });
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js/dist/tesseract.min.js"></script>
+</body>
+</html>
